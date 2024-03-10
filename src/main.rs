@@ -4,6 +4,8 @@ use std::io::{self};
 use serde_json::{Value};
 use anyhow::Result;
 
+mod message;
+
 
 
 // Maelstrom RPC msg
@@ -59,26 +61,20 @@ impl Message {
 
 fn main() -> Result<()> {
 
-
     eprintln!("Node starting...");
 
     let mut buffer = String::new();
     let stdin = io::stdin();
 
     while stdin.read_line(&mut buffer).is_ok() {
-        match serde_json::from_str::<Value>(&buffer) {
-            Ok(v) => {
-                eprintln!("Recieved Json: {}", v);
-                let msg = Message::new(v)?;
-
-                match msg.msg_type() {
-                    Type::Init => {
-                        eprintln!("initialized node with id:  {:?}", msg.body.get("node_id"));
-
-                    }
-                    Type::Unknown(s) => {
-                        eprintln!("Recieved unknown msg type:  {:?}", msg);
-                    }
+        match serde_json::from_str::<message::Message>(&buffer) {
+            Ok(msg) => {
+                eprintln!("Recieved msg: {:?}", msg);
+                if msg.body.typ == "init" {
+                    // handle init
+                }
+                if msg.body.typ == "echo" {
+                    // handle init
                 }
             }
             Err(e) => { eprintln!("Failed to parse json {}", e);}
