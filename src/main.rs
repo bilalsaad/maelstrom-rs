@@ -1,12 +1,12 @@
 
-use std::io::{self, Read};
+use std::io::{self};
 use serde_json::{self, Value};
 use anyhow::{Ok, Result};
 
 fn main() -> Result<()> {
     let mut buffer = String::new();
 
-    let mut stdin = io::stdin();
+    let stdin = io::stdin();
 
     stdin.read_line(&mut buffer)?;
 
