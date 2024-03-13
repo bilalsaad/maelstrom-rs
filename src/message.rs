@@ -33,7 +33,8 @@ pub struct Body {
 
 
 mod test {
-    
+    use crate::message::Message;
+    use crate::message::Body;
     
 
     #[test]
@@ -53,11 +54,46 @@ mod test {
         assert_eq!(msg, expected);
         Ok(())
     }
-    // TODO: test
-    //  - failure
-    //  - invalid args
-    //  - empty
 
+    #[test]
+    fn parse_empty_message_fails() -> anyhow::Result<()> {
+        let echo = "";
+
+        let msg = serde_json::from_str::<Message>(&echo);
+
+        assert!(msg.is_err(), "parsing empty message should fail.");
+        Ok(())
+    }
+
+    #[test]
+    fn parse_fails_when_no_src() -> anyhow::Result<()> {
+        let echo = r#"{ "dest": "n1", "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
+
+        let msg = serde_json::from_str::<Message>(&echo);
+
+        assert!(msg.is_err(), "parse should fail if src1");
+        Ok(())
+    }
+
+    #[test]
+    fn parse_fails_when_no_dst() -> anyhow::Result<()> {
+        let echo = r#"{ "src": "c1",  "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
+
+        let msg = serde_json::from_str::<Message>(&echo);
+
+        assert!(msg.is_err(), "parse should fail when no dst.");
+        Ok(())
+    }
+
+    #[test]
+    fn parse_fails_when_no_body() -> anyhow::Result<()> {
+        let echo = r#"{ "src": "c1", "dest": "n1" }"#;
+
+        let msg = serde_json::from_str::<Message>(&echo);
+
+        assert!(msg.is_err(), "parse should fail when no body {:?}.", msg);
+        Ok(())
+    }
 
 }
 
