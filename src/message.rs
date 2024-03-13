@@ -28,14 +28,11 @@ pub struct Body {
 
     // Per msg fields.
     #[serde(flatten)]
-    pub extra: Map<String, Value>
+    pub extra: Map<String, Value>,
 }
 
-
 mod test {
-    use crate::message::Message;
-    use crate::message::Body;
-    
+    use crate::message::{Body, Message};
 
     #[test]
     fn parse_message() -> anyhow::Result<()> {
@@ -49,7 +46,10 @@ mod test {
         };
         expected.body.typ = "echo".into();
         expected.body.msg_id = 1;
-        expected.body.extra.insert("echo".into(), "Please echo 35".into());
+        expected
+            .body
+            .extra
+            .insert("echo".into(), "Please echo 35".into());
 
         assert_eq!(msg, expected);
         Ok(())
@@ -67,7 +67,8 @@ mod test {
 
     #[test]
     fn parse_fails_when_no_src() -> anyhow::Result<()> {
-        let echo = r#"{ "dest": "n1", "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
+        let echo =
+            r#"{ "dest": "n1", "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
 
         let msg = serde_json::from_str::<Message>(&echo);
 
@@ -77,7 +78,8 @@ mod test {
 
     #[test]
     fn parse_fails_when_no_dst() -> anyhow::Result<()> {
-        let echo = r#"{ "src": "c1",  "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
+        let echo =
+            r#"{ "src": "c1",  "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
 
         let msg = serde_json::from_str::<Message>(&echo);
 
@@ -94,8 +96,4 @@ mod test {
         assert!(msg.is_err(), "parse should fail when no body {:?}.", msg);
         Ok(())
     }
-
 }
-
-
-
