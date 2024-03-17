@@ -1,5 +1,4 @@
 use std::{
-    borrow::BorrowMut,
     cell::{Cell, RefCell},
     collections::HashMap,
 };
@@ -41,7 +40,7 @@ pub type Handler = fn(Message, u64) -> Result<Message>;
 ///   State \ Event  |  init_msg    |   other_msg  |
 ///       Start      |  Initialized |   Start      |
 ///       Initialized | Initialized | Initialized  |
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 enum State {
     // Node has yet to recieve its init message
     #[default]
@@ -51,7 +50,7 @@ enum State {
 }
 
 /// Represents an initialized, has the nodes ID and the information from the init method.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 struct InitializedNode {
     id: String,
     other_nodes: Vec<String>,
@@ -131,7 +130,7 @@ impl InitializedNode {
         let id = body
             .extra
             .get("node_id")
-            .and_then(|n| Some(n.to_string()))
+            .and_then(|n| Some(n.to_string().replace("\"", "")))
             .ok_or(anyhow::anyhow!(
                 "can't init node if body has no node_id field: {:?}",
                 body
@@ -145,7 +144,7 @@ impl InitializedNode {
                 body
             ))?
             .into_iter()
-            .map(|n| n.to_string())
+            .map(|n| n.to_string().replace("\"", ""))
             .collect();
 
         Ok(Self { id, other_nodes })
@@ -164,5 +163,121 @@ fn init_reply(msg: Message, msg_id: u64) -> Message {
         src: msg.dest,
         dest: msg.src,
         body,
+    }
+}
+
+mod test {
+    use std::collections::HashMap;
+
+    use crate::message::Message;
+    use crate::node::{InitializedNode, State};
+    use crate::Node;
+
+    fn init_msg() -> Message {
+        let msg = r#"{
+            "src":"c1", "dest":"n1",
+            "body":{ 
+                "type":"init",
+                "node_id":"n1",
+                "node_ids":["n1", "n2"],
+                "msg_id":1}
+        }"#;
+
+        serde_json::from_str::<Message>(&msg).expect("invalid init json.")
+    }
+
+    #[test]
+    fn node_inital_state() -> anyhow::Result<()> {
+        // Tests that the initial state of a node is in the "Start" state
+        let node = Node::new(HashMap::new())?;
+        assert_eq!(
+            *node.state.borrow(),
+            State::Start,
+            "msg_id should start as Start, got {:?}",
+            node.state
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn node_initializes_after_init() -> anyhow::Result<()> {
+        // Test that node transitions into InializedNode state after recieving init msg.
+        let node = Node::new(HashMap::new())?;
+
+        node.handle(init_msg())?;
+
+        let expected_state = State::Initialized(InitializedNode {
+            id: "n1".into(),
+            other_nodes: vec!["n1".into(), "n2".into()],
+        });
+        assert_eq!(
+            *node.state.borrow(),
+            expected_state,
+            "node should transition into InitializedNode with id n1 and neighbor n2 got: {:?}",
+            node.state
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn init_reply_is_valid() -> anyhow::Result<()> {
+        // Tests that the reply for the first init message meets the Maelstrom spec from
+        // https://github.com/jepsen-io/maelstrom/blob/main/doc/protocol.md#initialization
+        let node = Node::new(HashMap::new())?;
+
+        let reply = node.handle(init_msg())?;
+
+        // Note that we expect that the first reply will have a message_id of 0 from us.
+        let expected = r#"{
+            "src":"n1", "dest":"c1",
+            "body": { 
+                "type":"init_ok",
+                "in_reply_to": 1,
+                "msg_id":0
+                }
+        }"#;
+
+        let expected = serde_json::from_str::<Message>(&expected)?;
+
+        assert_eq!(reply, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn cannot_create_node_with_init_handler() -> anyhow::Result<()> {
+        // Tests that creating a node with an "init" handler returns an error.
+        Ok(())
+    }
+
+    #[test]
+    fn multiple_init_messages_idempontent() -> anyhow::Result<()> {
+        // T
+        Ok(())
+    }
+
+    #[test]
+    fn reply_id_goes_up() -> anyhow::Result<()> {
+        // T
+        Ok(())
+    }
+
+    #[test]
+    fn unimplemented_type_returns_error() -> anyhow::Result<()> {
+        // T
+        Ok(())
+    }
+
+    #[test]
+    fn message_before_init_returns_error() -> anyhow::Result<()> {
+        // T
+        Ok(())
+    }
+
+    #[test]
+    fn node_propagates_handler_error() -> anyhow::Result<()> {
+        // T
+        Ok(())
     }
 }
