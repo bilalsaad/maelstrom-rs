@@ -1,27 +1,12 @@
 mod message;
 mod node;
 
-use std::io;
+use std::{collections::HashMap, io};
 
 use anyhow::Result;
 use node::Node;
 
-fn init_reply(msg: message::Message, msg_id: u64) -> message::Message {
-    let body = message::Body {
-        typ: "init_ok".to_string(),
-        msg_id,
-        in_reply_to: msg.body.msg_id,
-        ..Default::default()
-    };
-
-    message::Message {
-        src: msg.dest,
-        dest: msg.src,
-        body,
-    }
-}
-
-fn echo_reply(msg: message::Message, msg_id: u64) -> message::Message {
+fn echo_reply(msg: message::Message, msg_id: u64) -> Result<message::Message> {
     let body = message::Body {
         typ: "echo_ok".to_string(),
         msg_id,
@@ -29,11 +14,11 @@ fn echo_reply(msg: message::Message, msg_id: u64) -> message::Message {
         ..msg.body
     };
 
-    message::Message {
+    Ok(message::Message {
         src: msg.dest,
         dest: msg.src,
         body,
-    }
+    })
 }
 
 fn main() -> Result<()> {
@@ -42,32 +27,19 @@ fn main() -> Result<()> {
     let mut buffer = String::new();
     let stdin = io::stdin();
 
-    let mut node;
-    let mut msg_id = 0;
+    let node = Node::new(HashMap::from([(
+        "echo".to_string(),
+        echo_reply as node::Handler,
+    )]))?;
     while stdin.read_line(&mut buffer).is_ok() {
+        eprintln!("Recieved msg: {}", buffer);
         match serde_json::from_str::<message::Message>(&buffer) {
             Ok(msg) => {
-                eprintln!("Recieved msg: {:?}", msg);
-                if msg.body.typ == "init" {
-                    // handle init
-                    if let Ok(n) = Node::new(&msg.body) {
-                        node = n;
-                        eprintln!("initialized node {:?}", node);
-                        println!(
-                            "{}",
-                            serde_json::to_string(&init_reply(msg.clone(), msg_id))
-                                .expect("deserializing init_reply..")
-                        );
-                        msg_id += 1;
-                    }
-                }
-                if msg.body.typ == "echo" {
+                if let Ok(reply) = node.handle(msg) {
                     println!(
                         "{}",
-                        serde_json::to_string(&echo_reply(msg.clone(), msg_id))
-                            .expect("deserializing init_reply..")
+                        serde_json::to_string(&reply).expect("deserializing reply.")
                     );
-                    msg_id += 1;
                 }
             }
             Err(e) => {
