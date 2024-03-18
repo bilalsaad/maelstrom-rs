@@ -105,6 +105,13 @@ impl Node {
             }
         }
 
+        if *self.state.borrow() == State::Start {
+            return Err(anyhow!(
+                "Not Ready: recieved message {:?} before init message cannot handle.",
+                msg
+            ));
+        }
+
         // Otherwise try to find a handler.
         if let Some(&handler) = self.handlers.get(msg_type) {
             return handler(msg, self.reply_id());
@@ -172,6 +179,8 @@ mod test {
     use crate::message::Message;
     use crate::node::{InitializedNode, State};
     use crate::Node;
+
+    use super::Handler;
 
     fn init_msg() -> Message {
         let msg = r#"{
@@ -245,15 +254,43 @@ mod test {
         Ok(())
     }
 
+    fn identity_handler(msg: Message, _: u64) -> anyhow::Result<Message> {
+        Ok(msg)
+    }
+
     #[test]
     fn cannot_create_node_with_init_handler() -> anyhow::Result<()> {
-        // Tests that creating a node with an "init" handler returns an error.
+        // Test that creating node with a handler for "init" fails.
+        let node = Node::new(HashMap::from([(
+            "init".to_string(),
+            identity_handler as Handler,
+        )]));
+        assert!(
+            node.is_err(),
+            "Creating a node with a handler for init is forbidden {:?}",
+            node.unwrap()
+        );
         Ok(())
     }
 
     #[test]
     fn multiple_init_messages_idempontent() -> anyhow::Result<()> {
-        // T
+        // Tests that multiple init messages are valid.
+        let node = Node::new(HashMap::new())?;
+
+        node.handle(init_msg())?;
+        let expected_state = State::Initialized(InitializedNode {
+            id: "n1".into(),
+            other_nodes: vec!["n1".into(), "n2".into()],
+        });
+        assert_eq!(*node.state.borrow(), expected_state);
+        node.handle(init_msg())?;
+        assert_eq!(*node.state.borrow(), expected_state);
+        node.handle(init_msg())?;
+        assert_eq!(*node.state.borrow(), expected_state);
+        node.handle(init_msg())?;
+        assert_eq!(*node.state.borrow(), expected_state);
+
         Ok(())
     }
 
@@ -264,14 +301,77 @@ mod test {
     }
 
     #[test]
-    fn unimplemented_type_returns_error() -> anyhow::Result<()> {
-        // T
+    fn unimplemented_type_returns_error_after_init() -> anyhow::Result<()> {
+        // Tests that an unknown message returns an error after init.
+        let node = Node::new(HashMap::new())?;
+
+        // Init
+        node.handle(init_msg())?;
+
+        // Known msg
+        let msg = {
+            let mut msg = init_msg();
+            msg.body.typ = "unknown...".into();
+            msg
+        };
+
+        let result = node.handle(msg);
+
+        assert!(
+            result.as_ref().is_err_and(|e| e
+                .to_string()
+                .contains("No handler for message type unknown...")),
+            "expected failure with unknown handler, got {:?}",
+            result
+        );
         Ok(())
     }
 
     #[test]
+    fn unknown_message_before_init_returns_error() -> anyhow::Result<()> {
+        // Tests that an unknown message returns an error before init.
+        let node = Node::new(HashMap::new())?;
+
+        let msg = {
+            let mut msg = init_msg();
+            msg.body.typ = "unknown...".into();
+            msg
+        };
+
+        let result = node.handle(msg);
+
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("Not Ready")),
+            "expected failure with unknown handler, got {:?}",
+            result
+        );
+        Ok(())
+    }
+
     fn message_before_init_returns_error() -> anyhow::Result<()> {
-        // T
+        // Tests that a message returns an error before init.
+        let node = Node::new(HashMap::from([(
+            "init".to_string(),
+            identity_handler as Handler,
+        )]))?;
+
+        let msg = {
+            let mut msg = init_msg();
+            msg.body.typ = "id".into();
+            msg
+        };
+
+        let result = node.handle(msg);
+
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("Not Ready")),
+            "expected failure with unknown handler, got {:?}",
+            result
+        );
         Ok(())
     }
 
