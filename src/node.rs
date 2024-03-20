@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -6,7 +7,7 @@ use std::{
 use crate::message::{Body, Message};
 use anyhow::{anyhow, Result};
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 /// A Maelstrom node, handles messages.
 ///
 /// A node consumes maelstrom messages and returns replies to them.
@@ -21,16 +22,12 @@ pub struct Node {
     // Running count for reply message ids.
     msg_id: Cell<u64>,
 
-    // Incoming message handlers.
-    handlers: HashMap<String, Handler>,
+    /// Functions that process incoming messages.
+    /// Args:
+    ///     - 1st arg: Request Message.
+    ///     - 2nd arg: The reply_id to use in the response.
+    handlers: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>>,
 }
-
-/// Functions that process incoming messages.
-/// Args:
-///     - 1st arg: Request Message.
-///     - 2nd arg: The reply_id to use in the response.
-/// TODO: Consider making this a trait or something.
-pub type Handler = fn(Message, u64) -> Result<Message>;
 
 /// Node states,
 ///   | state |   Start  |   Initialized |
@@ -56,6 +53,17 @@ struct InitializedNode {
     other_nodes: Vec<String>,
 }
 
+impl fmt::Debug for Node {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let handlers: Vec<String> = self.handlers.keys().map(|x| x.to_string()).collect();
+        f.debug_struct("Node")
+            .field("state", &self.state)
+            .field("msg_id", &self.msg_id)
+            .field("handlers", &handlers)
+            .finish()
+    }
+}
+
 impl Node {
     /// Creates a new node with that will invoke the given handlers on incoming messages.
     /// Note that the node will only reply to messages after it transitions into the Initalized
@@ -64,7 +72,9 @@ impl Node {
     /// Preconditions:
     ///  - Cannot have an "init" handler. The init handler is hard coded and it transitions the
     ///  node into the Initalized state.
-    pub fn new(handlers: HashMap<String, Handler>) -> Result<Self> {
+    pub fn new(
+        handlers: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>>,
+    ) -> Result<Self> {
         if let Some(_) = handlers.get("init") {
             return Err(anyhow::anyhow!(
                 "FailedPrecondition: Cannot create Node with an init handler."
@@ -113,7 +123,7 @@ impl Node {
         }
 
         // Otherwise try to find a handler.
-        if let Some(&handler) = self.handlers.get(msg_type) {
+        if let Some(&ref handler) = self.handlers.get(msg_type) {
             return handler(msg, self.reply_id());
         }
 
@@ -176,11 +186,11 @@ fn init_reply(msg: Message, msg_id: u64) -> Message {
 mod test {
     use std::collections::HashMap;
 
+    use anyhow::Result;
+
     use crate::message::Message;
     use crate::node::{InitializedNode, State};
     use crate::Node;
-
-    use super::Handler;
 
     fn init_msg() -> Message {
         let msg = r#"{
@@ -259,12 +269,14 @@ mod test {
     }
 
     #[test]
-    fn cannot_create_node_with_init_handler() -> anyhow::Result<()> {
+    fn cannot_create_node_with_init_handler() -> Result<()> {
         // Test that creating node with a handler for "init" fails.
-        let node = Node::new(HashMap::from([(
-            "init".to_string(),
-            identity_handler as Handler,
-        )]));
+        let handlers = {
+            let mut funs: HashMap<_, Box<dyn Fn(Message, u64) -> Result<Message>>> = HashMap::new();
+            funs.insert("init".into(), Box::new(identity_handler));
+            funs
+        };
+        let node = Node::new(handlers);
         assert!(
             node.is_err(),
             "Creating a node with a handler for init is forbidden {:?}",
@@ -353,10 +365,12 @@ mod test {
     #[test]
     fn message_before_init_returns_error() -> anyhow::Result<()> {
         // Tests that a message returns an error before init.
-        let node = Node::new(HashMap::from([(
-            "id".to_string(),
-            identity_handler as Handler,
-        )]))?;
+        let handlers = {
+            let mut funs: HashMap<_, Box<dyn Fn(Message, u64) -> Result<Message>>> = HashMap::new();
+            funs.insert("id".into(), Box::new(identity_handler));
+            funs
+        };
+        let node = Node::new(handlers)?;
 
         let msg = {
             let mut msg = init_msg();
@@ -379,8 +393,14 @@ mod test {
     #[test]
     fn node_propagates_handler_error() -> anyhow::Result<()> {
         // Tests handler errors are propagated correctly.
-        let handler: Handler = |_, _| Err(anyhow::anyhow!("error from handler"));
-        let node = Node::new(HashMap::from([("id".to_string(), handler)]))?;
+
+        let handlers = {
+            let mut funs: HashMap<_, Box<dyn Fn(Message, u64) -> Result<Message>>> = HashMap::new();
+            let err_handler = |_: Message, _: u64| Err(anyhow::anyhow!("error from handler"));
+            funs.insert("id".into(), Box::new(err_handler));
+            funs
+        };
+        let node = Node::new(handlers)?;
 
         node.handle(init_msg())?;
 
@@ -402,19 +422,37 @@ mod test {
     }
 
     #[test]
-    fn handler_with_state() -> anyhow::Result<()> {
+    fn hndler_with_state() -> anyhow::Result<()> {
         // Tests using a handler with some state (counts requests.)
-        // todo...
-        let cnt = std::cell::Cell::new(0);
-        let counting_handler = |msg: Message, _: u64| {
-            cnt.set(cnt.get() + 1);
-            // just return the message we recieve.
-            Ok::<Message, anyhow::Error>(msg)
+        let cnt = std::cell::RefCell::new(0);
+        let handlers = {
+            let cnt_copy = cnt.clone();
+            let counting_handler = move |msg: Message, _: u64| {
+                println!("wtf... {:?}", cnt_copy);
+                cnt_copy.replace_with(|&mut old| old + 1);
+                println!("wtf... {:?}", cnt_copy);
+                // just return the message we recieve.
+                Ok::<Message, anyhow::Error>(msg)
+            };
+            let mut funs: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>> =
+                HashMap::default();
+            funs.insert("count".to_string(), Box::new(counting_handler));
+            funs
         };
-        let mut funs: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>> =
-            HashMap::default();
-        funs.insert("meow".to_string(), Box::new(counting_handler));
-        funs.insert("meow2".to_string(), Box::new(identity_handler));
+        let node = Node::new(handlers)?;
+
+        node.handle(init_msg())?;
+
+        let msg = {
+            let mut msg = init_msg();
+            msg.body.typ = "count".into();
+            msg
+        };
+
+        node.handle(msg)?;
+
+        // this fails -- not clear why count isn't getting updated as the closure is being called..
+        assert_eq!(*cnt.borrow(), 1);
         Ok(())
     }
 }
