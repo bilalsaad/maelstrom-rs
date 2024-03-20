@@ -353,7 +353,7 @@ mod test {
     fn message_before_init_returns_error() -> anyhow::Result<()> {
         // Tests that a message returns an error before init.
         let node = Node::new(HashMap::from([(
-            "init".to_string(),
+            "id".to_string(),
             identity_handler as Handler,
         )]))?;
 
@@ -377,7 +377,26 @@ mod test {
 
     #[test]
     fn node_propagates_handler_error() -> anyhow::Result<()> {
-        // T
+        // Tests handler errors are propagated correctly.
+        let handler: Handler = |_, _| Err(anyhow::anyhow!("error from handler"));
+        let node = Node::new(HashMap::from([("id".to_string(), handler)]))?;
+
+        node.handle(init_msg())?;
+
+        let msg = {
+            let mut msg = init_msg();
+            msg.body.typ = "id".into();
+            msg
+        };
+        let result = node.handle(msg);
+
+        assert!(
+            result
+                .as_ref()
+                .is_err_and(|e| e.to_string().contains("error from handler")),
+            "expected failure from handler, got {:?}",
+            result
+        );
         Ok(())
     }
 }
