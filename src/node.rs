@@ -350,6 +350,7 @@ mod test {
         Ok(())
     }
 
+    #[test]
     fn message_before_init_returns_error() -> anyhow::Result<()> {
         // Tests that a message returns an error before init.
         let node = Node::new(HashMap::from([(
@@ -397,6 +398,23 @@ mod test {
             "expected failure from handler, got {:?}",
             result
         );
+        Ok(())
+    }
+
+    #[test]
+    fn handler_with_state() -> anyhow::Result<()> {
+        // Tests using a handler with some state (counts requests.)
+        // todo...
+        let cnt = std::cell::Cell::new(0);
+        let counting_handler = |msg: Message, _: u64| {
+            cnt.set(cnt.get() + 1);
+            // just return the message we recieve.
+            Ok::<Message, anyhow::Error>(msg)
+        };
+        let mut funs: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>> =
+            HashMap::default();
+        funs.insert("meow".to_string(), Box::new(counting_handler));
+        funs.insert("meow2".to_string(), Box::new(identity_handler));
         Ok(())
     }
 }
