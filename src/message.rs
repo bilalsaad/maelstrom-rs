@@ -31,11 +31,15 @@ pub struct Body {
     pub extra: Map<String, Value>,
 }
 
+#[cfg(test)]
 mod test {
-    use crate::message::{Body, Message};
+    use anyhow::Result;
+
+    use crate::message::Message;
+    use crate::message::Body;
 
     #[test]
-    fn parse_message() -> anyhow::Result<()> {
+    fn parse_message() -> Result<()> {
         let echo = r#"{ "src": "c1", "dest": "n1", "body": { "type": "echo", "msg_id": 1, "echo": "Please echo 35" }}"#;
 
         let msg = serde_json::from_str::<Message>(&echo)?;

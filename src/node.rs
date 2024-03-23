@@ -14,7 +14,7 @@ use anyhow::{anyhow, Result};
 ///
 /// After recieving an init message a node will its ID and topology.
 /// Messages recieved before an init message cannot be handled.
-pub struct Node {
+pub struct Node<'a> {
     // State of the node,
     // -->Start(Init) --> Initiazlied (Final)
     // A node transitions into initialized after handling its first init message.
@@ -26,7 +26,7 @@ pub struct Node {
     /// Args:
     ///     - 1st arg: Request Message.
     ///     - 2nd arg: The reply_id to use in the response.
-    handlers: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>>,
+    handlers: HashMap<String, Box<dyn Fn(Message, u64) -> Result<Message> + 'a>>,
 }
 
 /// Node states,
@@ -53,7 +53,7 @@ struct InitializedNode {
     other_nodes: Vec<String>,
 }
 
-impl fmt::Debug for Node {
+impl<'a> fmt::Debug for Node<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let handlers: Vec<String> = self.handlers.keys().map(|x| x.to_string()).collect();
         f.debug_struct("Node")
@@ -64,7 +64,7 @@ impl fmt::Debug for Node {
     }
 }
 
-impl Node {
+impl<'a> Node<'a> {
     /// Creates a new node with that will invoke the given handlers on incoming messages.
     /// Note that the node will only reply to messages after it transitions into the Initalized
     /// phase (after it recieves an init_message).
@@ -73,7 +73,7 @@ impl Node {
     ///  - Cannot have an "init" handler. The init handler is hard coded and it transitions the
     ///  node into the Initalized state.
     pub fn new(
-        handlers: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>>,
+        handlers: HashMap<String, Box<dyn Fn(Message, u64) -> Result<Message> + 'a>>,
     ) -> Result<Self> {
         if let Some(_) = handlers.get("init") {
             return Err(anyhow::anyhow!(
@@ -183,6 +183,7 @@ fn init_reply(msg: Message, msg_id: u64) -> Message {
     }
 }
 
+#[cfg(test)]
 mod test {
     use std::collections::HashMap;
 
@@ -393,14 +394,12 @@ mod test {
     #[test]
     fn node_propagates_handler_error() -> anyhow::Result<()> {
         // Tests handler errors are propagated correctly.
-
-        let handlers = {
+        let node = {
             let mut funs: HashMap<_, Box<dyn Fn(Message, u64) -> Result<Message>>> = HashMap::new();
             let err_handler = |_: Message, _: u64| Err(anyhow::anyhow!("error from handler"));
             funs.insert("id".into(), Box::new(err_handler));
-            funs
+            Node::new(funs)?
         };
-        let node = Node::new(handlers)?;
 
         node.handle(init_msg())?;
 
@@ -422,24 +421,20 @@ mod test {
     }
 
     #[test]
-    fn hndler_with_state() -> anyhow::Result<()> {
+    fn handler_with_state() -> Result<()> {
         // Tests using a handler with some state (counts requests.)
         let cnt = std::cell::RefCell::new(0);
-        let handlers = {
-            let cnt_copy = cnt.clone();
-            let counting_handler = move |msg: Message, _: u64| {
-                println!("wtf... {:?}", cnt_copy);
-                cnt_copy.replace_with(|&mut old| old + 1);
-                println!("wtf... {:?}", cnt_copy);
+        let node: Node = {
+            let counting_handler = |msg: Message, _: u64| {
+                cnt.replace_with(|old| *old + 1);
                 // just return the message we recieve.
                 Ok::<Message, anyhow::Error>(msg)
             };
-            let mut funs: HashMap<String, Box<dyn Fn(Message, u64) -> anyhow::Result<Message>>> =
+            let mut funs: HashMap<String, Box<dyn Fn(Message, u64) -> Result<Message>>> =
                 HashMap::default();
             funs.insert("count".to_string(), Box::new(counting_handler));
-            funs
+            Node::new(funs)?
         };
-        let node = Node::new(handlers)?;
 
         node.handle(init_msg())?;
 
@@ -449,10 +444,20 @@ mod test {
             msg
         };
 
-        node.handle(msg)?;
+        node.handle(msg.clone())?;
 
-        // this fails -- not clear why count isn't getting updated as the closure is being called..
-        assert_eq!(*cnt.borrow(), 1);
+        assert_eq!(
+            *cnt.borrow(),
+            1,
+            "After first message handled, count should be 1"
+        );
+        node.handle(msg.clone())?;
+        node.handle(msg)?;
+        assert_eq!(
+            *cnt.borrow(),
+            3,
+            "After 3 messages handled, count should be 3"
+        );
         Ok(())
     }
 }
