@@ -1,5 +1,6 @@
 mod message;
 mod node;
+mod broadcast;
 
 use std::{collections::HashMap, io};
 
@@ -23,6 +24,23 @@ fn echo_reply(msg: message::Message, msg_id: u64) -> Result<message::Message> {
     })
 }
 
+
+
+/// Topolgy message handler.
+fn topology(msg: Message, msg_id: u64) -> Result<Message> {
+    Err(anyhow::anyhow!("unimplemented, got: {msg:?}"))
+}
+
+/// Broadcast message handler.
+fn broadcast(msg: Message, msg_id: u64) -> Result<Message> {
+    Err(anyhow::anyhow!("unimplemented, got: {msg:?}"))
+}
+
+/// Read message handler.
+fn read(msg: Message, msg_id: u64) -> Result<Message> {
+    Err(anyhow::anyhow!("unimplemented, got: {msg:?}"))
+}
+
 fn main() -> Result<()> {
     eprintln!("Node starting...");
 
@@ -32,6 +50,9 @@ fn main() -> Result<()> {
     let handlers = {
         let mut funs: HashMap<_, Box<dyn Fn(Message, u64) -> Result<Message>>> = HashMap::new();
         funs.insert("echo".into(), Box::new(echo_reply));
+        funs.insert("topology".into(), Box::new(topology));
+        funs.insert("broadcast".into(), Box::new(broadcast));
+        funs.insert("read".into(), Box::new(read));
         funs
     };
     let node = Node::new(handlers)?;
